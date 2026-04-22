@@ -6,7 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,7 +17,7 @@ import (
 
 type closeFunc func() error
 
-func initializeLogger() (*log.Logger, closeFunc, error) {
+func initializeLogger() (*slog.Logger, closeFunc, error) {
 	logfile := os.Getenv("LINKO_LOG_FILE")
 	if logfile != "" {
 		file, err := os.OpenFile(logfile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
@@ -26,7 +26,7 @@ func initializeLogger() (*log.Logger, closeFunc, error) {
 		}
 		bufferedFile := bufio.NewWriterSize(file, 8192)
 		multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
-		return log.New(multiWriter, "", log.LstdFlags), func() error {
+		return slog.New(slog.NewTextHandler(multiWriter, nil)), func() error {
 			err = bufferedFile.Flush()
 			if err != nil {
 				return fmt.Errorf("buffered file failed to flush")
@@ -38,7 +38,7 @@ func initializeLogger() (*log.Logger, closeFunc, error) {
 			return nil
 		}, nil
 	}
-	return log.New(os.Stderr, "", log.LstdFlags), func() error { return nil }, nil
+	return slog.New(slog.NewTextHandler(os.Stderr, nil)), func() error { return nil }, nil
 }
 
 func main() {
@@ -69,7 +69,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 	st, err := store.New(dataDir, appLogger)
 	if err != nil {
-		appLogger.Printf("failed to create store: %v\n", err)
+		appLogger.Info(fmt.Sprintf("failed to create store: %v\n", err))
 		return 1
 	}
 	s := newServer(*st, httpPort, appLogger, cancel)
@@ -82,13 +82,13 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	appLogger.Println("Linko is shutting down")
+	appLogger.Info("Linko is shutting down")
 	if err := s.shutdown(shutdownCtx); err != nil {
-		appLogger.Printf("failed to shutdown server: %v\n", err)
+		appLogger.Info(fmt.Sprintf("failed to shutdown server: %v\n", err))
 		return 1
 	}
 	if serverErr != nil {
-		appLogger.Printf("server error: %v\n", serverErr)
+		appLogger.Info(fmt.Sprintf("server error: %v\n", serverErr))
 		return 1
 	}
 	return 0
