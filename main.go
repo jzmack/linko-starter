@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"boot.dev/linko/internal/store"
+	pkgerr "github.com/pkg/errors"
 )
 
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
@@ -21,15 +23,29 @@ func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 		if !ok {
 			return a
 		}
-		return slog.String("error", fmt.Sprintf("%+v", err))
+		if stackErr, ok := errors.AsType[stackTracer](err); ok {
+			return slog.GroupAttrs("error", slog.Attr{
+				Key:   "message",
+				Value: slog.StringValue(stackErr.Error()),
+			}, slog.Attr{
+				Key:   "stack_trace",
+				Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
+			})
+		}
 	}
 	return a
+}
+
+type stackTracer interface {
+	error
+	StackTrace() pkgerr.StackTrace
 }
 
 type closeFunc func() error
 
 func initializeLogger() (*slog.Logger, closeFunc, error) {
 	logfile := os.Getenv("LINKO_LOG_FILE")
+
 	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
 		Level:       slog.LevelDebug,
 		ReplaceAttr: replaceAttr,
