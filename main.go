@@ -19,14 +19,20 @@ type closeFunc func() error
 
 func initializeLogger() (*slog.Logger, closeFunc, error) {
 	logfile := os.Getenv("LINKO_LOG_FILE")
+	debugHandler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
 	if logfile != "" {
 		file, err := os.OpenFile(logfile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to open log file: %v", err)
 		}
 		bufferedFile := bufio.NewWriterSize(file, 8192)
-		multiWriter := io.MultiWriter(os.Stderr, bufferedFile)
-		return slog.New(slog.NewTextHandler(multiWriter, nil)), func() error {
+		writer := io.Writer(bufferedFile)
+		infoHandler := slog.NewTextHandler(writer, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})
+		return slog.New(slog.NewMultiHandler(debugHandler, infoHandler)), func() error {
 			err = bufferedFile.Flush()
 			if err != nil {
 				return fmt.Errorf("buffered file failed to flush")
@@ -38,7 +44,7 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 			return nil
 		}, nil
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, nil)), func() error { return nil }, nil
+	return slog.New(debugHandler), func() error { return nil }, nil
 }
 
 func main() {
@@ -69,7 +75,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 
 	st, err := store.New(dataDir, appLogger)
 	if err != nil {
-		appLogger.Info(fmt.Sprintf("failed to create store: %v\n", err))
+		appLogger.Error(fmt.Sprintf("failed to create store: %v\n", err))
 		return 1
 	}
 	s := newServer(*st, httpPort, appLogger, cancel)
@@ -82,7 +88,7 @@ func run(ctx context.Context, cancel context.CancelFunc, httpPort int, dataDir s
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	appLogger.Info("Linko is shutting down")
+	appLogger.Debug("Linko is shutting down")
 	if err := s.shutdown(shutdownCtx); err != nil {
 		appLogger.Info(fmt.Sprintf("failed to shutdown server: %v\n", err))
 		return 1
