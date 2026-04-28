@@ -18,25 +18,45 @@ import (
 	pkgerr "github.com/pkg/errors"
 )
 
+type multiError interface {
+	error
+	Unwrap() []error
+}
+
+func errorAttrs(err error) []slog.Attr {
+	errAttribs := linkoerr.Attrs(err)
+	base := []slog.Attr{
+		slog.String("message", err.Error()),
+	}
+	combined := append(base, errAttribs...)
+	if stackErr, ok := errors.AsType[stackTracer](err); ok {
+		stackTraceAttr := slog.Attr{
+			Key:   "stack_trace",
+			Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
+		}
+		combined = append(combined, stackTraceAttr)
+	}
+	return combined
+}
+
 func replaceAttr(groups []string, a slog.Attr) slog.Attr {
 	if a.Key == "error" {
 		err, ok := a.Value.Any().(error)
 		if !ok {
 			return a
 		}
-		errAttribs := linkoerr.Attrs(err)
-		base := []slog.Attr{
-			slog.String("message", err.Error()),
-		}
-		combined := append(base, errAttribs...)
-		if stackErr, ok := errors.AsType[stackTracer](err); ok {
-			stackTraceAttr := slog.Attr{
-				Key:   "stack_trace",
-				Value: slog.StringValue(fmt.Sprintf("%+v", stackErr.StackTrace())),
+		if multiErr, ok := errors.AsType[multiError](err); ok {
+			errs := multiErr.Unwrap()
+			errGroups := []slog.Attr{}
+			for i, er := range errs {
+				errorN := slog.GroupAttrs(fmt.Sprintf("error_%d", i+1), errorAttrs(er)...)
+				errGroups = append(errGroups, errorN)
 			}
-			combined = append(combined, stackTraceAttr)
+			return slog.GroupAttrs("errors", errGroups...)
 		}
-		return slog.GroupAttrs("error", combined...)
+
+		errAttrs := errorAttrs(err)
+		return slog.GroupAttrs("error", errAttrs...)
 	}
 	return a
 }
