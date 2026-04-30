@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"boot.dev/linko/internal/store"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 type server struct {
@@ -41,6 +42,7 @@ func newServer(store store.Store, port int, logger *slog.Logger, cancel context.
 	mux.Handle("POST /api/shorten", s.authMiddleware(http.HandlerFunc(s.handlerShortenLink)))
 	mux.Handle("GET /api/stats", s.authMiddleware(http.HandlerFunc(s.handlerStats)))
 	mux.Handle("GET /api/urls", s.authMiddleware(http.HandlerFunc(s.handlerListURLs)))
+	mux.Handle("GET /metrics", promhttp.Handler())
 	mux.HandleFunc("GET /{shortCode}", s.handlerRedirect)
 	mux.HandleFunc("POST /admin/shutdown", s.handlerShutdown)
 
@@ -152,7 +154,6 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			logCtx := &LogContext{}
 			ctx := context.WithValue(r.Context(), logContextKey, logCtx)
 			r = r.WithContext(ctx)
-			rid := r.Header.Get("X-Request-ID")
 
 			next.ServeHTTP(spyWriter, r)
 
@@ -164,7 +165,7 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
 				slog.Int("response_body_bytes", spyWriter.bytesWritten),
-				slog.String("request_id", rid),
+				slog.String("request_id", spyWriter.Header().Get("X-Request-ID")),
 			}
 
 			if logCtx.Username != "" {
