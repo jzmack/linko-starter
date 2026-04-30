@@ -125,6 +125,23 @@ func requestID() func(http.Handler) http.Handler {
 	}
 }
 
+func redactIP(addressString string) string {
+	ipString, _, err := net.SplitHostPort(addressString)
+	if err != nil {
+		return addressString
+	}
+	ipAddr := net.ParseIP(ipString)
+	if ipAddr != nil {
+		v4string := ipAddr.To4()
+		if v4string != nil {
+			redacted := fmt.Sprintf("%d.%d.%d.x", v4string[0], v4string[1], v4string[2])
+			return redacted
+		}
+		return ipString
+	}
+	return ipString
+}
+
 func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +159,7 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			attrs := []any{
 				"method", r.Method,
 				"path", r.URL.Path,
-				"client_ip", r.RemoteAddr,
+				"client_ip", redactIP(r.RemoteAddr),
 				slog.Duration("duration", time.Since(start)),
 				slog.Int("request_body_bytes", spyReader.bytesRead),
 				slog.Int("response_status", spyWriter.statusCode),
