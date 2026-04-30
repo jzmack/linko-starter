@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -19,6 +17,7 @@ import (
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-isatty"
 	pkgerr "github.com/pkg/errors"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type multiError interface {
@@ -85,29 +84,26 @@ func initializeLogger() (*slog.Logger, closeFunc, error) {
 		ReplaceAttr: replaceAttr,
 		NoColor:     noColor,
 	})
+
 	if logfile != "" {
-		file, err := os.OpenFile(logfile, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o644)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to open log file: %v", err)
+
+		logger := &lumberjack.Logger{
+			Filename:   logfile,
+			MaxSize:    1,
+			MaxAge:     28,
+			MaxBackups: 10,
+			LocalTime:  false,
+			Compress:   true,
 		}
-		bufferedFile := bufio.NewWriterSize(file, 8192)
-		writer := io.Writer(bufferedFile)
-		infoHandler := slog.NewJSONHandler(writer, &slog.HandlerOptions{
+		infoHandler := slog.NewJSONHandler(logger, &slog.HandlerOptions{
 			Level:       slog.LevelInfo,
 			ReplaceAttr: replaceAttr,
 		})
 		return slog.New(slog.NewMultiHandler(debugHandler, infoHandler)), func() error {
-			err = bufferedFile.Flush()
-			if err != nil {
-				return fmt.Errorf("buffered file failed to flush")
-			}
-			err = file.Close()
-			if err != nil {
-				return fmt.Errorf("file failed to close")
-			}
-			return nil
+			return logger.Close()
 		}, nil
 	}
+
 	return slog.New(debugHandler), func() error { return nil }, nil
 }
 
